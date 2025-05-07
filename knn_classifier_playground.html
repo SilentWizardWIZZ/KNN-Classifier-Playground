@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>KNN Classifier Playground - AI/ML Demo</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@500&display=swap');
+  body, html {
+    margin: 0; padding: 0; height: 100%; width: 100%;
+    font-family: 'Montserrat', sans-serif;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    display: flex; justify-content: center; align-items: center;
+  }
+  #app {
+    width: 350px;
+    height: 600px;
+    background: #f7f4f8;
+    border-radius: 18px;
+    box-shadow: 0 0 25px rgba(118, 75, 162, 0.6);
+    display: flex;
+    flex-direction: column;
+    padding: 15px 20px;
+    user-select: none;
+  }
+  header {
+    font-weight: 700;
+    font-size: 1.4rem;
+    text-align: center;
+    color: #4b2c83;
+    margin-bottom: 12px;
+    letter-spacing: 1px;
+  }
+  #canvas-container {
+    flex-grow: 1;
+    background: white;
+    border: 3px solid #764ba2;
+    border-radius: 15px;
+    position: relative;
+    box-shadow: 0 0 14px #a287d4;
+  }
+  canvas {
+    border-radius: 15px;
+    background: radial-gradient(circle at center, #fff, #dcd8e6);
+    display: block;
+    margin: 0 auto;
+    touch-action: none;
+  }
+  #controls {
+    margin-top: 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  label {
+    font-weight: 600;
+    color: #4b2c83;
+  }
+  input[type=range] {
+    width: 100%;
+    -webkit-appearance: none;
+    height: 11px;
+    border-radius: 5px;
+    background: #764ba2;
+    outline: none;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #ffb100;
+    cursor: pointer;
+    border: 3px solid #764ba2;
+    margin-top: -5px;
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #ffb100;
+    cursor: pointer;
+    border: 3px solid #764ba2;
+  }
+  #info {
+    font-weight: 500;
+    color: #5d4d80;
+    text-align: center;
+    font-size: 1.05rem;
+  }
+  #instructions {
+    font-size: 0.85rem;
+    color: #7c72a0;
+    margin-top: 8px;
+    font-style: italic;
+    text-align: center;
+  }
+  button {
+    background: #764ba2;
+    color: white;
+    border: none;
+    padding: 10px;
+    font-weight: 700;
+    border-radius: 15px;
+    cursor: pointer;
+    box-shadow: 0 0 8px #a285d3;
+    transition: background-color 0.3s ease;
+  }
+  button:hover {
+    background: #8e6bc0;
+  }
+</style>
+</head>
+<body>
+  <div id="app" role="main" aria-label="K-Nearest Neighbors Classifier Playground">
+    <header>KNN Classifier Playground</header>
+
+    <div id="canvas-container" aria-label="2D classification plot and input area">
+      <canvas id="plot-canvas" width="320" height="400" aria-live="polite"></canvas>
+    </div>
+
+    <div id="controls">
+      <label for="k-range">Number of Neighbors (k): <span id="k-value">3</span></label>
+      <input type="range" id="k-range" min="1" max="15" step="1" value="3" aria-valuemin="1" aria-valuemax="15" aria-valuenow="3" aria-label="Select number of neighbors k"/>
+
+      <label for="class-select">Select Class to Add:</label>
+      <select id="class-select" aria-label="Select class label to add points">
+        <option value="A">Class A (Blue)</option>
+        <option value="B">Class B (Orange)</option>
+        <option value="C">Class C (Green)</option>
+      </select>
+
+      <button id="clear-btn" aria-label="Clear all points">Clear Points</button>
+    </div>
+    <div id="info" aria-live="polite" aria-atomic="true"></div>
+    <div id="instructions">Click inside the plot area to add points of the selected class. The classifier predicts class of mouse position in real time.</div>
+  </div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('plot-canvas');
+  const ctx = canvas.getContext('2d');
+
+  const kRange = document.getElementById('k-range');
+  const kValueSpan = document.getElementById('k-value');
+  const classSelect = document.getElementById('class-select');
+  const clearBtn = document.getElementById('clear-btn');
+  const info = document.getElementById('info');
+
+  const width = canvas.width;
+  const height = canvas.height;
+
+  // Dataset Points: {x, y, label}
+  let dataset = [];
+
+  // Colors for classes
+  const classColors = {
+    'A': '#2a52be', // blue
+    'B': '#f7941d', // orange
+    'C': '#2ecc71', // green
+  };
+
+  // Draw background grid lines
+  function drawGrid() {
+    ctx.fillStyle = '#f7f4f8';
+    ctx.fillRect(0, 0, width, height);
+
+    ctx.strokeStyle = '#d8d3de';
+    ctx.lineWidth = 1;
+
+    const step = 40;
+    for (let x = step; x < width; x += step) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, height);
+      ctx.stroke();
+    }
+    for (let y = step; y < height; y += step) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(width, y);
+      ctx.stroke();
+    }
+  }
+
+  // Draw a point with color and size
+  function drawPoint(x, y, color, radius = 8, border = true) {
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, 2 * Math.PI);
+    ctx.fillStyle = color;
+    ctx.fill();
+    if (border) {
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#555';
+      ctx.stroke();
+    }
+  }
+
+  // Compute euclidean distance between two points
+  function distance(p1, p2) {
+    return Math.sqrt((p1.x-p2.x)**2 + (p1.y-p2.y)**2);
+  }
+
+  // KNN classifier - returns label given neighbors k
+  function classify(point, k) {
+    if (dataset.length === 0) return null;
+    // Compute distances with all
+    const distances = dataset.map(d => ({
+      label: d.label,
+      dist: distance(point, d)
+    }));
+    distances.sort((a,b) => a.dist - b.dist);
+    const kNearest = distances.slice(0, k);
+
+    // Majority vote
+    const counts = {};
+    for (const neighbor of kNearest) {
+      counts[neighbor.label] = (counts[neighbor.label] || 0) + 1;
+    }
+
+    // Find max count
+    let maxLabel = null, maxCount = 0;
+    for (const [label, count] of Object.entries(counts)) {
+      if (count > maxCount) {
+        maxLabel = label;
+        maxCount = count;
+      }
+    }
+    return maxLabel;
+  }
+
+  // Draw all dataset points
+  function drawDataset() {
+    for (const p of dataset) {
+      drawPoint(p.x, p.y, classColors[p.label] || '#777');
+    }
+  }
+
+  // Draw decision boundary mesh (optional, for fun)
+  function drawDecisionBoundary(k) {
+    // Optional feature: draw background colored by prediction at grid points
+    // We'll use a coarse grid for performance
+    const resolution = 15;
+
+    for (let x = 0; x < width; x += resolution) {
+      for (let y = 0; y < height; y += resolution) {
+        const predLabel = classify({x, y}, k);
+        if(!predLabel) continue;
+
+        ctx.fillStyle = hexToRgba(classColors[predLabel], 0.15);
+        ctx.fillRect(x, y, resolution, resolution);
+      }
+    }
+  }
+
+  // Helper: convert hex color to rgba string with opacity
+  function hexToRgba(hex, alpha) {
+    const bigint = parseInt(hex.replace('#',''),16);
+    const r = (bigint >> 16) & 255;
+    const g = (bigint >>8 ) & 255;
+    const b = bigint & 255;
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+
+  // Render entire frame
+  function render(mousePos) {
+    drawGrid();
+    drawDecisionBoundary(+kRange.value);
+    drawDataset();
+
+    if(mousePos) {
+      const pred = classify(mousePos, +kRange.value);
+      if(pred) {
+        // Draw mouse pointer colored by predicted class
+        drawPoint(mousePos.x, mousePos.y, classColors[pred], 12, false);
+        info.textContent = `Prediction at pointer: Class ${pred}`;
+      } else {
+        info.textContent = 'Add some points to classify!';
+      }
+    } else {
+      info.textContent = 'Click inside area to add points';
+    }
+  }
+
+  // Handle adding points on click
+  canvas.addEventListener('click', e => {
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    dataset.push({x, y, label: classSelect.value});
+    render();
+  });
+
+  // Track mouse movement and update prediction
+  let lastMousePos = null;
+  canvas.addEventListener('mousemove', e => {
+    const rect = canvas.getBoundingClientRect();
+    lastMousePos = {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top
+    };
+    render(lastMousePos);
+  });
+  canvas.addEventListener('mouseleave', () => {
+    lastMousePos = null;
+    render();
+  });
+
+  // Update k and re-render on slider change
+  kRange.addEventListener('input', () => {
+    kValueSpan.textContent = kRange.value;
+    render(lastMousePos);
+  });
+
+  // Clear dataset button
+  clearBtn.addEventListener('click', () => {
+    dataset = [];
+    render(lastMousePos);
+  });
+
+  // Initial render
+  render();
+
+})();
+</script>
+
+</body>
+</html>
